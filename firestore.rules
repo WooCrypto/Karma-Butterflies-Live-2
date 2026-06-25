@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default-deny catch-all to prevent unintended public access to other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Wallets collection to store user profiles and reputation badges
+    match /wallets/{walletId} {
+      allow read: if true;
+      allow create: if isValidId(walletId) && isValidWalletProfile(incoming()) && incoming().address == walletId;
+      allow update: if isValidId(walletId) && isValidWalletProfile(incoming()) && incoming().address == walletId && (
+        // Ensure immutable fields are not changed
+        incoming().address == existing().address &&
+        incoming().connectedAt == existing().connectedAt
+      );
+    }
+    
+    // Global validation helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 3 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+    
+    function isValidWalletProfile(data) {
+      return data.keys().hasAll(['address', 'connectedAt', 'lastSeen', 'verifiedNfts', 'detectedAlignment', 'detectedSeed', 'isEvolved', 'selectedBadge'])
+        && data.keys().size() <= 11 // address, connectedAt, lastSeen, verifiedNfts, detectedAlignment, detectedSeed, isEvolved, selectedBadge, plus up to 3 optional custom overlay fields
+        && data.address is string && data.address.size() >= 3 && data.address.size() <= 128
+        && data.connectedAt is string && data.connectedAt.size() <= 64
+        && data.lastSeen is string && data.lastSeen.size() <= 64
+        && data.verifiedNfts is list && data.verifiedNfts.size() <= 100
+        && (data.verifiedNfts.size() == 0 || data.verifiedNfts[0] is string)
+        && data.detectedAlignment is string && (data.detectedAlignment == 'light' || data.detectedAlignment == 'shadow' || data.detectedAlignment == 'nexus')
+        && data.detectedSeed is string && data.detectedSeed.size() <= 128
+        && data.isEvolved is bool
+        && data.selectedBadge is string && (data.selectedBadge == 'none' || data.selectedBadge == 'holder' || data.selectedBadge == 'genesis' || data.selectedBadge == 'verified')
+        // Optional custom overlay fields
+        && (!data.keys().hasAny(['customOverlayImg']) || (data.customOverlayImg is string && data.customOverlayImg.size() <= 500000))
+        && (!data.keys().hasAny(['customOverlayName']) || (data.customOverlayName is string && data.customOverlayName.size() <= 128))
+        && (!data.keys().hasAny(['isCustomApplied']) || data.isCustomApplied is bool);
+    }
+  }
+}
